@@ -1,0 +1,104 @@
+version: '3'
+
+networks:
+  myyoutube-network:
+
+services:
+  mariadb:
+    image: mariadb
+    tty: true
+    restart: always
+    ports:
+      - 3306:3306
+    environment:
+      MYSQL_DATABASE: mydb
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: myyoutube_user
+      MYSQL_PASSWORD: myyoutube_password
+    networks:
+      - myyoutube-network
+    volumes:
+      - ./docker/db/mariadb_data:/var/lib/mysql
+      - ./docker/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    links:
+      - mariadb
+    depends_on:
+      - mariadb
+    ports:
+      - 8080:80
+    environment:
+      PMA_HOST: mariadb
+      MYSQL_ROOT_PASSWORD: root 
+    networks:
+      - myyoutube-network
+
+  postfix:
+    image: juanluisbaptiste/postfix
+    restart: always
+    ports:
+      - 25:25
+    environment:
+      SMTP_SERVER: smtp.googlemail.com
+      SMTP_USERNAME: habi_a@etna-alternance.net
+      SMTP_PASSWORD: 10011963Habi.
+      SERVER_HOSTNAME: myyoutube.local
+    networks:
+      - myyoutube-network
+
+  api:
+    build: ./myapi
+    links:
+      - mariadb
+    depends_on:
+      - mariadb
+    ports:
+      - 8000:8000
+    networks:
+      - myyoutube-network
+    volumes:
+      - ./myapi/public/video:/app/public/video
+    command: php artisan serve --host=0.0.0.0 --port=8000
+
+  mailer:
+    build: ./mailer
+    links: 
+      - postfix
+    depends_on:
+      - postfix
+    ports:
+      - 5000:5000
+    networks:
+      - myyoutube-network
+    command: python api.py
+
+  ui:
+    build: ./myyoutube
+    links:
+      - api
+      - mailer
+    depends_on:
+      - api
+      - mailer
+    ports:
+      - 3000:3000
+    networks:
+      - myyoutube-network
+    volumes:
+      - ./myapi/public/video:/app/video
+    command: npm run dev
+
+  encoder:
+    build: ./encoding
+    links:
+      - mailer
+    depends_on:
+      - mailer
+      - api
+    networks:
+      - myyoutube-network
+    volumes:
+      - ./myapi/public/video:/app/video
+    command: node index.js
